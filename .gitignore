@@ -24,3 +24,5 @@ explain.md
 *.npz
 checkpoints/
 wandb/
+.venv/
+venv/

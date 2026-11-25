@@ -11,8 +11,8 @@ rationale, literature grounding and MDP formulation are in [docs/DESIGN.md](docs
 ## Quick start: every command in order
 
 ```bash
-conda activate dhav
-cd ~/NAVRL
+cd NAVRL
+source .venv/bin/activate          # created in Setup below
 
 # 0. Sanity checks (~10 s)
 python scripts/validate_robot.py                    # expect: 10/10 tests passed
@@ -34,21 +34,43 @@ python scripts/demo.py --model logs/navrl/curriculum/s6/best_model.pt --stage s4
 
 ## 1. Setup
 
-Everything runs in the existing **`dhav`** conda env:
-
-| Package | Version |
-|---|---|
-| Python | 3.12 |
-| mujoco | 3.10 |
-| gymnasium | 1.4 |
-| stable-baselines3 | 2.9 |
-| torch | 2.12 |
-| tensorboard, matplotlib, imageio | (installed) |
+Tested on Ubuntu with Python 3.12. No GPU needed; training runs on the CPU.
 
 ```bash
-conda activate dhav
-cd ~/NAVRL
+git clone https://github.com/sachinmandal3580-rgb/NAVRL.git
+cd NAVRL
+python3 -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip
+pip install -r requirements.txt
 ```
+
+[requirements.txt](requirements.txt) pins the exact versions the project was tested with:
+
+| Package | Version | Used for |
+|---|---|---|
+| mujoco | 3.10.0 | physics, LiDAR ray casting, viewer |
+| gymnasium | 1.4.0 | environment API |
+| stable-baselines3 | 2.9.2 | PPO |
+| torch | 2.12.0 | policy network |
+| numpy, scipy | 1.26.4, 1.17.1 | numerics; shortest-path reward |
+| tensorboard, matplotlib | 2.21.0, 3.11.0 | training logs, figures |
+| imageio, imageio-ffmpeg | 2.37.3, 0.8.1 | MP4 recording |
+| pytest | 9.2.0 | tests |
+
+**Smaller download (CPU-only torch):** the default torch wheel bundles CUDA (~2 GB). Since training uses the
+CPU, you can install the CPU build first:
+
+```bash
+pip install torch==2.12.0 --index-url https://download.pytorch.org/whl/cpu
+pip install -r requirements.txt
+```
+
+**Later sessions:** run `source .venv/bin/activate` in the repo before any command below.
+`scripts/train.sh` picks up `.venv` by itself, or set `PY=/path/to/python` to use another interpreter.
+
+**Live viewer:** `scripts/demo.py`, `teleop.py` and `goal_nav.py` open a MuJoCo window, so they need a
+desktop session. On a headless machine use `demo.py --record out.mp4` instead.
 
 If ROS Jazzy is sourced in your shell, its `PYTHONPATH` breaks pytest plugins. The pytest command above
 disables plugin autoload for that reason, and `scripts/train.sh` unsets `PYTHONPATH` itself.
@@ -631,6 +653,7 @@ NAVRL/
 │       ├── episodes.json         # per-episode outcomes + trajectories
 │       └── traj_<suite>.png      # top-down trajectory plots (empty, static, dyn_*, crossing)
 ├── .gitignore
+├── requirements.txt              # pinned Python dependencies (pip install -r)
 └── README.md
 ```
 

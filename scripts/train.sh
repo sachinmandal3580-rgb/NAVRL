@@ -13,7 +13,10 @@ set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO"
 
-PY="${PY:-/home/sachin/miniconda3/envs/dhav/bin/python}"
+# Python to use: $PY if set, else the repo's .venv, else whatever `python3` is on PATH
+if [[ -z "${PY:-}" ]]; then
+  if [[ -x "$REPO/.venv/bin/python" ]]; then PY="$REPO/.venv/bin/python"; else PY="$(command -v python3 || command -v python)"; fi
+fi
 TASK="${TASK:-s1_empty}"
 # 4 envs = benchmarked throughput plateau on this 12-thread laptop (6 and 8 were no faster)
 # and keeps RAM low (7 GB machine).

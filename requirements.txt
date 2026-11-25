@@ -1,0 +1,21 @@
+# NavRL dependencies. Versions are the ones the project was developed and tested with (Python 3.12).
+# Install:  python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
+
+# simulation + RL
+mujoco==3.10.0
+gymnasium==1.4.0
+stable-baselines3==2.9.2
+torch==2.12.0            # CPU is enough; see README for the smaller CPU-only wheel
+
+# numerics
+numpy==1.26.4
+scipy==1.17.1            # shortest-path reward (Dijkstra) and distance transforms
+
+# logging, plots, video
+tensorboard==2.21.0
+matplotlib==3.11.0
+imageio==2.37.3
+imageio-ffmpeg==0.8.1    # MP4 recording in scripts/demo.py --record
+
+# tests
+pytest==9.2.0
