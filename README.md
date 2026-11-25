@@ -79,6 +79,7 @@ desktop session. On a headless machine use `demo.py --record out.mp4` instead.
 ```bash
 python scripts/validate_robot.py      # robot physics battery: speed tracking, rotation, curves, braking, wall impact
 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q -p no:cacheprovider tests/
+python scripts/benchmark.py           # optional: env steps/s and parallel-env scaling (no learning)
 ```
 
 **Expected:**
@@ -96,7 +97,7 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q -p no:cacheprovider tests/
 
 - **One iteration** = `NUM_ENVS × NUM_STEPS` env steps (one rollout) followed by one PPO update.
   The default is 4 envs × 1024 steps = **4096 steps per iteration**.
-- **4 parallel envs was the fastest setting** on tested laptop:
+- **4 parallel envs is the benchmarked sweet spot** on tested laptop:
   - 6 or 8 envs give only ~6% more throughput;
   - they use more of the 7 GB of RAM;
   - they make each iteration longer.
@@ -660,6 +661,7 @@ NAVRL/
 │   ├── robot.py                  # action mapping, accel limits, diff-drive kinematics, base servos
 │   └── viz.py                    # viewer overlays (rays, trail), trajectory plots
 ├── scripts/
+│   ├── benchmark.py              # env throughput / parallel-env scaling
 │   ├── demo.py                   # live MuJoCo viewer or MP4 recording
 │   ├── evaluate.py               # held-out test suites -> results/<name>/
 │   ├── train.py                  # training CLI (--task --num_envs --max_iterations --warm_start --resume)
@@ -712,6 +714,7 @@ scripts/evaluate.py       held-out evaluation + trajectory plots
 scripts/demo.py           live MuJoCo viewer / MP4 recording
 scripts/teleop.py         keyboard teleop in the live viewer
 scripts/validate_robot.py robot physics validation battery
+scripts/benchmark.py      env throughput benchmark
 tests/test_env.py         unit tests
 docs/DESIGN.md            full design document
 ```
