@@ -2,7 +2,7 @@
 
 Usage:
   python scripts/plot_results.py                       # everything it can find, into figures/
-  python scripts/plot_results.py --robust results/robust/s3_s4_baseline \\
+  python scripts/plot_results.py --robust results/robust/s3_s5_s6_baseline \\
       --evals s3_best_100 s5_it570 s6_best gotogoal_100
 
 Inputs it reads (all optional, figures are skipped when their input is missing):
@@ -214,7 +214,7 @@ def suite_outcomes(eval_names: list[str], out: Path) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--runs", default=str(ROOT / "logs" / "navrl" / "curriculum"))
-    ap.add_argument("--robust", default=str(ROOT / "results" / "robust" / "s3_s4_baseline"))
+    ap.add_argument("--robust", default=str(ROOT / "results" / "robust" / "s3_s5_s6_baseline"))
     ap.add_argument("--evals", nargs="*", default=["s3_best_100", "s5_it570", "s6_best", "gotogoal_100"])
     ap.add_argument("--out", default=str(ROOT / "figures"))
     args = ap.parse_args()

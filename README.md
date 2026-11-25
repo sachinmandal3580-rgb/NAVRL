@@ -79,7 +79,6 @@ desktop session. On a headless machine use `demo.py --record out.mp4` instead.
 ```bash
 python scripts/validate_robot.py      # robot physics battery: speed tracking, rotation, curves, braking, wall impact
 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q -p no:cacheprovider tests/
-python scripts/benchmark.py           # optional: env steps/s and parallel-env scaling (no learning)
 ```
 
 **Expected:**
@@ -97,7 +96,7 @@ python scripts/benchmark.py           # optional: env steps/s and parallel-env s
 
 - **One iteration** = `NUM_ENVS × NUM_STEPS` env steps (one rollout) followed by one PPO update.
   The default is 4 envs × 1024 steps = **4096 steps per iteration**.
-- **4 parallel envs is the benchmarked sweet spot** on tested laptop:
+- **4 parallel envs was the fastest setting** on tested laptop:
   - 6 or 8 envs give only ~6% more throughput;
   - they use more of the 7 GB of RAM;
   - they make each iteration longer.
@@ -284,8 +283,8 @@ scenario (3 static + 3 movers at 0.3 m/s) and compares policies on identical sce
 intervals:
 
 ```bash
-python scripts/robust_eval.py --models logs/navrl/curriculum/s3/best_model.pt \
-                                       logs/navrl/curriculum/s4/best_model.pt --baseline
+python scripts/robust_eval.py --models logs/navrl/curriculum/s5/best_model.pt \
+                                       logs/navrl/curriculum/s6/best_model.pt --baseline
 python scripts/robust_eval.py --models logs/navrl/curriculum/s4/best_model.pt --episodes 30 --sweeps obs_speed robot_vmax
 ```
 
@@ -398,6 +397,7 @@ Stages 5 and 6 train on a mix of all scene types, so their curves sit between th
 ![training curves](figures/training_curves.png)
 
 **Collision rate vs difficulty.** One factor varied at a time, 100 test episodes per point, 95% intervals.
+All four policies see exactly the same scenarios (`results/robust/s3_s5_s6_baseline/`).
 
 ![collision vs difficulty](figures/difficulty_collisions.png)
 
@@ -624,6 +624,17 @@ During training the s6 collision rate looked flat (about 0.27). That is because 
 is harder (two of every seven episodes have a mover aimed at the robot); the fixed test suites above are
 the fair comparison.
 
+**Stage 6 robustness sweeps** (`results/robust/s3_s5_s6_baseline/`, same scenarios for s3, s5, s6 and go-to-goal,
+100 episodes per point, see the figures above):
+
+- **Best or tied on almost every sweep.** 8 static obstacles: 0.98 (s5 0.92, baseline 0.68).
+  6 movers: 0.76 (s5 0.72). Walls: 0.79 / 0.72 / 0.59 with 2 / 4 / 6 walls.
+- **Fast movers:** at 0.6-0.75 m/s s6 holds 0.72-0.73, where s3 and s5 drop to 0.65-0.68.
+- **LiDAR noise** up to 0.10 m std makes no difference (0.83-0.89). A slow robot (0.3 m/s top speed)
+  also copes better: 0.85 vs 0.79 for s5.
+- **Weak spot: very fast crossers.** At 0.65 m/s, just above the 0.2-0.6 m/s training range, s6 drops to
+  0.52 while s3 and s5 hold about 0.70. s6 drives faster, so it has less time to dodge an obstacle aimed at it.
+
 ## Project layout
 
 ### File tree
@@ -649,7 +660,6 @@ NAVRL/
 │   ├── robot.py                  # action mapping, accel limits, diff-drive kinematics, base servos
 │   └── viz.py                    # viewer overlays (rays, trail), trajectory plots
 ├── scripts/
-│   ├── benchmark.py              # env throughput / parallel-env scaling
 │   ├── demo.py                   # live MuJoCo viewer or MP4 recording
 │   ├── evaluate.py               # held-out test suites -> results/<name>/
 │   ├── train.py                  # training CLI (--task --num_envs --max_iterations --warm_start --resume)
@@ -702,7 +712,6 @@ scripts/evaluate.py       held-out evaluation + trajectory plots
 scripts/demo.py           live MuJoCo viewer / MP4 recording
 scripts/teleop.py         keyboard teleop in the live viewer
 scripts/validate_robot.py robot physics validation battery
-scripts/benchmark.py      env throughput benchmark
 tests/test_env.py         unit tests
 docs/DESIGN.md            full design document
 ```
