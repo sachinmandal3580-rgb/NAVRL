@@ -51,10 +51,40 @@ def load_policy(path: str | Path, device: str = "cpu") -> tuple[ActorCriticPolic
     return policy, ckpt
 
 
-def n_stack_of(ckpt: dict, n_rays: int = 60) -> int:
+def n_rays_of(ckpt: dict) -> int:
+    return int(ckpt.get("n_rays", 60))          # older checkpoints were all 60 rays
+
+
+def n_stack_of(ckpt: dict, n_rays: int | None = None) -> int:
+    n_rays = n_rays or n_rays_of(ckpt)
     return int(ckpt.get("n_stack", (ckpt["obs_dim"] - 7) // n_rays))
 
 
 def obs_kwargs_of(ckpt: dict) -> dict:
     """EnvConfig fields that must match training for the observation to mean the same thing."""
-    return {"n_stack": n_stack_of(ckpt), "stack_gap": int(ckpt.get("stack_gap", 1))}
+    return {"n_stack": n_stack_of(ckpt), "stack_gap": int(ckpt.get("stack_gap", 1)),
+            "n_rays": n_rays_of(ckpt)}
+
+
+def widen_rays(state_dict: dict, n_old: int, n_new: int, n_stack: int, tail: int = 7) -> dict:
+    """Adapt first-layer weights trained on n_old LiDAR rays to n_new = k * n_old rays.
+
+    Rays are evenly spaced from angle 0, so new ray k*i points exactly where old ray i did.
+    That column copies the old weights; the in-between rays start at zero. The widened
+    network therefore computes exactly the same function as the old one at the start, and
+    training learns to use the extra rays.
+    """
+    assert n_new % n_old == 0, "new ray count must be a multiple of the old one"
+    k = n_new // n_old
+    d_old, d_new = n_old * n_stack + tail, n_new * n_stack + tail
+    out = {}
+    for name, w in state_dict.items():
+        if w.ndim == 2 and w.shape[1] == d_old:
+            nw = w.new_zeros(w.shape[0], d_new)
+            for s in range(n_stack):
+                nw[:, s * n_new: (s + 1) * n_new: k] = w[:, s * n_old: (s + 1) * n_old]
+            nw[:, n_new * n_stack:] = w[:, n_old * n_stack:]
+            out[name] = nw
+        else:
+            out[name] = w
+    return out

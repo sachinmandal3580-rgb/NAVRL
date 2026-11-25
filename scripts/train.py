@@ -36,7 +36,8 @@ from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from navrl.callbacks import IterationCallback  # noqa: E402
-from navrl.checkpoint import POLICY_KWARGS, load_checkpoint, save_checkpoint  # noqa: E402
+from navrl.checkpoint import (POLICY_KWARGS, load_checkpoint, n_rays_of, n_stack_of,  # noqa: E402
+                              save_checkpoint, widen_rays)
 from navrl.config import STAGES, make_config  # noqa: E402
 from navrl.env import NavRLEnv  # noqa: E402
 
@@ -134,12 +135,19 @@ def main() -> None:
         print(f"[resume] {ckpt_path} ({done} iterations done)")
     elif args.warm_start:
         ckpt = load_checkpoint(args.warm_start, args.device)
-        # strict: fails immediately if observation/action widths differ
-        model.policy.load_state_dict(ckpt["model_state_dict"], strict=True)
+        sd = ckpt["model_state_dict"]
+        if n_rays_of(ckpt) != cfg.n_rays:
+            # e.g. 60-ray policy -> 120-ray env: copy weights onto the rays at the same angles
+            if n_stack_of(ckpt) != cfg.n_stack:
+                raise SystemExit("[ERROR] warm start needs the same --n_stack")
+            sd = widen_rays(sd, n_rays_of(ckpt), cfg.n_rays, cfg.n_stack)
+            print(f"[warm_start] widened LiDAR input {n_rays_of(ckpt)} -> {cfg.n_rays} rays")
+        # strict: fails immediately if observation/action widths still differ
+        model.policy.load_state_dict(sd, strict=True)
         print(f"[warm_start] actor+critic weights from {args.warm_start} "
               f"(fresh optimizer, iteration 0)")
 
-    meta = {"task": args.task, "n_stack": args.n_stack, "stack_gap": cfg.stack_gap, "train_args": vars(args)}
+    meta = {"task": args.task, "n_stack": args.n_stack, "stack_gap": cfg.stack_gap, "n_rays": cfg.n_rays, "train_args": vars(args)}
     remaining = max(args.max_iterations - done, 0)
     print(f"[train] task={args.task} n_stack={args.n_stack} num_envs={args.num_envs} "
           f"steps/iter={steps_per_iter} batch={batch_size} iterations {done}->{args.max_iterations}\n"

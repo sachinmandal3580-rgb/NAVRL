@@ -68,6 +68,17 @@ STAGES["s5_mix"] = dict(
     reward=RewardConfig(proximity=0.03, d_safe=0.5, time=0.01),
 )
 
+# crossing-heavy episodes: every episode has a mover aimed at the robot's path
+STAGES["s3_crossing"] = dict(n_static=(1, 4), n_dynamic=(1, 3), dyn_speed=(0.2, 0.6), p_crossing=1.0)
+
+# v3: s5 recipe + 120 LiDAR rays (3 deg spacing, thin walls can't hide between rays)
+# + twice as many crossing episodes. Warm-starts from a 60-ray model via checkpoint.widen_rays.
+STAGES["s6_mix"] = dict(
+    mix=("s1_empty", "s2_static", "s3_dynamic", "s3_crossing", "s3_crossing", "s4_complex", "s4_complex"),
+    geodesic_progress=True, stack_gap=3, max_steps=450, n_rays=120,
+    reward=RewardConfig(proximity=0.03, d_safe=0.5, time=0.01),
+)
+
 MIX_KEYS = ("n_static", "n_dynamic", "dyn_speed", "p_crossing", "n_walls", "dyn_wander")
 
 

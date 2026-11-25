@@ -22,13 +22,14 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q -p no:cacheprovider tests/ 
 TASK=s1_empty   MAX_ITER=100  RUN_NAME=s1 FOREGROUND=1 scripts/train.sh
 TASK=s2_static  MAX_ITER=1000 RUN_NAME=s2 FOREGROUND=1 WARM_START=logs/navrl/curriculum/s1/model_100.pt scripts/train.sh
 TASK=s3_dynamic MAX_ITER=1500 RUN_NAME=s3 FOREGROUND=1 WARM_START=logs/navrl/curriculum/s2/best_model.pt scripts/train.sh
-TASK=s4_complex MAX_ITER=2000 RUN_NAME=s4 FOREGROUND=1 WARM_START=logs/navrl/curriculum/s3/best_model.pt scripts/train.sh
+PHYSICS_DT=0.02 TASK=s5_mix MAX_ITER=1500 RUN_NAME=s5 FOREGROUND=1 WARM_START=logs/navrl/curriculum/s3/best_model.pt scripts/train.sh --num_learning_epochs 5 --num_mini_batches 8
+PHYSICS_DT=0.02 TASK=s6_mix MAX_ITER=2000 RUN_NAME=s6 FOREGROUND=1 WARM_START=logs/navrl/curriculum/s5/best_model.pt scripts/train.sh --num_learning_epochs 5 --num_mini_batches 8
 
-# 2. Evaluate on held-out test scenarios
-python scripts/evaluate.py --model logs/navrl/curriculum/s3/best_model.pt --episodes 50
+# 2. Evaluate the final policy on held-out test scenarios
+python scripts/evaluate.py --model logs/navrl/curriculum/s6/best_model.pt --episodes 100
 
 # 3. Watch it live in MuJoCo
-python scripts/demo.py --model logs/navrl/curriculum/s3/best_model.pt --stage s3_dynamic
+python scripts/demo.py --model logs/navrl/curriculum/s6/best_model.pt --stage s4_complex
 ```
 
 ## 1. Setup
@@ -97,11 +98,14 @@ TASK=s2_static  MAX_ITER=1000 RUN_NAME=s2 FOREGROUND=1 WARM_START=logs/navrl/cur
 # Stage 3: 2-5 static + 1-4 moving obstacles, 50% of episodes with a crossing obstacle (~60-70 min)
 TASK=s3_dynamic MAX_ITER=1500 RUN_NAME=s3 FOREGROUND=1 WARM_START=logs/navrl/curriculum/s2/best_model.pt scripts/train.sh
 
-# Stage 5 (recommended): mix of all stages + geodesic progress + scans 0.3 s apart (~1.5 h)
-PHYSICS_DT=0.02 TASK=s5_mix MAX_ITER=1500 RUN_NAME=s5 FOREGROUND=1 WARM_START=logs/navrl/curriculum/s3/best_model.pt scripts/train.sh --num_learning_epochs 5 --num_mini_batches 8
-
 # Stage 4: 2-6 interior walls + 2-6 static + 2-6 wandering movers up to 0.6 m/s, 45 s episodes (~2.5-3 h)
 TASK=s4_complex MAX_ITER=2000 RUN_NAME=s4 FOREGROUND=1 WARM_START=logs/navrl/curriculum/s3/best_model.pt scripts/train.sh
+
+# Stage 5: mix of all stages + geodesic progress + scans 0.3 s apart (stopped at iteration 717; best at 570)
+PHYSICS_DT=0.02 TASK=s5_mix MAX_ITER=1500 RUN_NAME=s5 FOREGROUND=1 WARM_START=logs/navrl/curriculum/s3/best_model.pt scripts/train.sh --num_learning_epochs 5 --num_mini_batches 8
+
+# Stage 6 (final policy): s5 + 120 LiDAR rays + twice the crossing episodes (~2 h)
+PHYSICS_DT=0.02 TASK=s6_mix MAX_ITER=2000 RUN_NAME=s6 FOREGROUND=1 WARM_START=logs/navrl/curriculum/s5/best_model.pt scripts/train.sh --num_learning_epochs 5 --num_mini_batches 8
 ```
 
 Stage 1 converges almost immediately, so its final `model_100.pt` is used for the warm start.
@@ -118,15 +122,26 @@ Stage 1 converges almost immediately, so its final `model_100.pt` is used for th
   starting at 0.5 m.
 - **Speed:** `PHYSICS_DT=0.02` and 5 epochs x 8 minibatches make it about 2x faster per iteration.
 
+**Stage 6 (`s6_mix`, the final policy)** keeps everything from s5 and fixes its two remaining weak spots:
+- **120 LiDAR rays** (3° apart instead of 6°). With 60 rays, a 12 cm wall seen end-on fits between two rays
+  beyond about 1.1 m, and most s5 wall failures were wall collisions.
+- **Twice as many crossing episodes:** a new `s3_crossing` stage, where every episode has a mover aimed at
+  the robot's path at 0.2-0.6 m/s, appears twice in the mix. s5 had dropped to 0.65 on crossings.
+- **Warm start across ray counts:** the 60-ray s5 network is widened to 120 inputs per scan
+  (`checkpoint.widen_rays`). Ray 2i of the new scan points exactly where ray i of the old one did, so it
+  copies that column and the in-between rays start at zero. The widened network gives the same actions as
+  s5 to within 2e-7, and training then learns to use the extra rays.
+
 **`scripts/train.sh` variables** (set before the command; anything after it passes straight to `train.py`):
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `TASK` | `s1_empty` | `s1_empty`, `s2_static`, `s3_dynamic`, `s4_complex` or `s5_mix` |
+| `TASK` | `s1_empty` | `s1_empty`, `s2_static`, `s3_dynamic`, `s3_crossing`, `s4_complex`, `s5_mix` or `s6_mix` |
 | `MAX_ITER` | `100` | PPO iterations |
 | `NUM_ENVS` | `4` | parallel envs (CPU processes) |
 | `NUM_STEPS` | `1024` | rollout length per env per iteration |
 | `N_STACK` | `3` | LiDAR scans in the observation (1 or 3) |
+| `PHYSICS_DT` | `0.01` | physics substep; `0.02` is ~1.8x faster with <1 cm trajectory difference |
 | `RUN_NAME` | `<task>_<timestamp>` | output folder name |
 | `WARM_START` | (empty) | `.pt` checkpoint to initialise weights from |
 | `FOREGROUND` | `0` | `1` = run in this terminal; `0` = background with nohup |
@@ -383,12 +398,12 @@ force-limited velocity servos.
   motion). This is re-applied every 0.01 s physics substep.
 - **Command pipeline:** policy action → (v, ω) → acceleration limit (1 m/s², 3 rad/s²) → wheel inverse
   kinematics with wheel-speed limits (r = 0.04 m, track 0.28 m) → base servos.
-- **Timing:** 10 Hz control, 0.01 s physics step.
+- **Timing:** 10 Hz control; 0.01 s physics step (0.02 s for stages 5 and 6).
 
 ### LiDAR
 
-60 rays over 360°, range 3 m, cast with `mujoco.mj_multiRay`. The rays see only walls and obstacles,
-never the robot itself or the floor.
+360° scan, range 3 m, cast with `mujoco.mj_multiRay`: 60 rays (6° apart) in stages 1-5 and 120 rays
+(3° apart) in the final stage 6. The rays see only walls and obstacles, never the robot itself or the floor.
 
 ### Obstacles
 
@@ -407,11 +422,11 @@ never the robot itself or the floor.
 
 ### Observation
 
-187 values with `N_STACK=3`, or 67 with 1:
+`n_rays × 3 + 7` values: 187 with 60 rays, 367 with 120 rays (final policy).
 
 | Part | Size | Content |
 |---|---|---|
-| LiDAR scans | 60 × N_STACK | newest first, normalised to [0, 1] |
+| LiDAR scans | n_rays × 3 | newest first, normalised to [0, 1]; 0.1 s apart (stages 1-4) or 0.3 s apart (`stack_gap=3`, stages 5-6) |
 | Goal | 3 | distance; sin and cos of the goal bearing |
 | Velocity | 2 | measured v and ω |
 | Previous action | 2 | last command |
@@ -424,14 +439,19 @@ never the robot itself or the floor.
 
 Every term is logged separately.
 
-| Term | Value |
-|---|---|
-| Progress | `+1.0 × (d_prev − d)` |
-| Goal | `+10` on success |
-| Collision | `−10` |
-| Time | `−0.005` per step |
-| Smoothness | `−0.001 × ‖Δa‖²` |
-| Proximity | `−0.01 × max(0, 1 − clearance/0.4)` |
+| Term | Stages 1-4 | Final (stages 5-6) |
+|---|---|---|
+| Progress | `+1.0 × (d_prev − d)`, d = straight-line distance | same, but d = **shortest-path distance** around walls and static obstacles |
+| Goal | `+10` on success | `+10` |
+| Collision | `−10` | `−10` |
+| Time | `−0.005` per step | `−0.01` per step |
+| Smoothness | `−0.001 × ‖Δa‖²` | same |
+| Proximity | `−0.01 × max(0, 1 − clearance/0.4)` | `−0.03 × max(0, 1 − clearance/0.5)` |
+
+**Shortest-path distance:** at reset, a 5 cm grid of positions the robot centre can occupy is built (walls and
+static obstacles inflated by the robot radius), and Dijkstra from the goal gives a distance field. The
+reward looks the field up (bilinear) at the robot position. The policy never sees the field; it is reward
+only, like a teacher who knows the map.
 
 ### Episode end
 
@@ -439,7 +459,7 @@ Every term is logged separately.
 |---|---|
 | Any chassis contact | **terminated** (collision) |
 | Goal distance < 0.3 m | **terminated** (success) |
-| 300 steps (30 s) | **truncated** (timeout; PPO bootstraps the value) |
+| 300 steps (30 s); 450 (45 s) in stages 4-6 | **truncated** (timeout; PPO bootstraps the value) |
 
 ### PPO settings
 
@@ -449,8 +469,8 @@ Every term is logged separately.
 | Learning rate | 3e-4 |
 | γ / λ | 0.99 / 0.95 |
 | Clip | 0.2 |
-| Epochs | 10 |
-| Mini-batches | 16 |
+| Epochs | 10 (5 in stages 5-6) |
+| Mini-batches | 16 (8 in stages 5-6) |
 | Initial log-std | −0.5 |
 
 ## What is simplified (honest list)
@@ -460,7 +480,9 @@ Every term is logged separately.
   0.15-0.22 m/s). The wheels are therefore visual only and wheel slip is not simulated. Kinematics,
   speed/acceleration limits, inertia and collisions are still simulated.
 - Moving obstacles are kinematic and do not react to the robot.
-- LiDAR is noise-free; there is no domain randomisation.
+- LiDAR is noise-free during training (robustness to noise is only tested); there is no domain randomisation.
+- The shortest-path reward uses map knowledge the robot does not have. It shapes learning only; the
+  policy acts on LiDAR alone.
 - Single training seed; the single-scan vs. stacked-scan comparison from the design is not done yet.
 
 ## Results so far
@@ -532,6 +554,27 @@ What went wrong in stage 4 (from classifying every failed episode):
 - **Most remaining collisions are with movers**, which the 0.1 s scan stack barely shows as motion.
 
 Stage `s5_mix` addresses each of these (see Training).
+
+**Stage 5 (best checkpoint, iteration 570), 100 test episodes per suite, success rate:**
+
+| Suite | s5 (it 570) | s3 best | s4 best |
+|---|---|---|---|
+| empty | **1.00** | 1.00 | 0.83 |
+| static | **0.99** | 0.98 | 0.90 |
+| dyn_slow | **0.99** | 0.94 | 0.87 |
+| dyn_medium | 0.88 | **0.91** | 0.85 |
+| dyn_fast | 0.80 | **0.85** | 0.76 |
+| crossing | 0.65 | **0.83** | 0.56 |
+| walls | 0.73 | 0.69 | **0.83** |
+| complex | 0.53 | 0.55 | **0.62** |
+| crowd | **0.56** | 0.48 | 0.53 |
+
+- **Fixed:** no more stalling (0 timeouts in the empty arena), and paths are 1.22x the straight line vs
+  1.48x for s3/s4.
+- **Still weak:** every dynamic-suite collision was with a mover; crossings dropped to 0.65; about 20 of
+  every 100 wall-suite episodes ended in a wall collision. Stage 6 targets both.
+
+**Stage 6 (final policy):** to be filled in after training.
 
 ## Project layout
 
