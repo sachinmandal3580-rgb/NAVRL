@@ -1,0 +1,185 @@
+<!--
+  NavRL arena + differential-drive robot (MJCF).
+
+  ROBOT MODEL (simplified, see docs/DESIGN.md 4.5 "planar fallback"):
+    The chassis is a rigid body (3.4 kg) on planar joints x, y, yaw, driven by
+    torque/force-limited velocity servos. Python enforces the non-holonomic
+    differential-drive constraint every physics substep: the commanded world
+    velocity is always along the robot heading (no sideways motion), with
+    (v, w) obtained from wheel speeds through diff-drive kinematics.
+    Wheel-ground friction/slip is NOT simulated (wheels are visual only): a
+    full wheel-contact model was tried first and slipped badly at speed.
+    Collisions between the chassis and walls/obstacles are real MuJoCo contacts.
+
+  Geom groups (used by the LiDAR geomgroup mask and viewer toggles):
+    group 0: floor + robot + all visual-only decoration (LiDAR ignores, contype 0)
+    group 1: walls + interior walls + obstacles (LiDAR sees)
+    group 2: goal marker            (LiDAR ignores, no collisions)
+
+  Obstacles are mocap bodies: kinematic, repositioned from Python every reset
+  (and every physics substep for moving obstacles). Unused obstacles are parked
+  below the floor. Contacts between two static/mocap bodies are skipped by MuJoCo,
+  so obstacles only ever collide with the robot.
+-->
+<mujoco model="navrl">
+  <compiler angle="radian" autolimits="true"/>
+  <option timestep="0.005" integrator="implicitfast"/>
+
+  <visual>
+    <global offwidth="1280" offheight="720"/>
+    <headlight ambient="0.3 0.3 0.32" diffuse="0.45 0.45 0.45" specular="0.1 0.1 0.1"/>
+    <quality shadowsize="4096"/>
+    <map shadowclip="8"/>
+  </visual>
+
+  <asset>
+    <texture name="sky" type="skybox" builtin="gradient" rgb1="0.55 0.68 0.85" rgb2="0.08 0.1 0.16" width="512" height="512"/>
+    <texture name="grid" type="2d" builtin="checker" width="512" height="512"
+             rgb1="0.82 0.84 0.87" rgb2="0.72 0.75 0.79" mark="edge" markrgb="0.6 0.63 0.68"/>
+    <texture name="outside" type="2d" builtin="flat" width="64" height="64" rgb1="0.28 0.3 0.33"/>
+    <texture name="crate" type="2d" builtin="checker" width="128" height="128"
+             rgb1="0.62 0.45 0.26" rgb2="0.55 0.39 0.22" mark="edge" markrgb="0.35 0.24 0.12"/>
+    <texture name="brick" type="2d" builtin="checker" width="256" height="256"
+             rgb1="0.62 0.62 0.66" rgb2="0.56 0.56 0.6" mark="edge" markrgb="0.42 0.42 0.46"/>
+    <material name="floor" texture="grid" texrepeat="6 6" reflectance="0.08" specular="0.2"/>
+    <material name="outside" texture="outside" texrepeat="1 1"/>
+    <material name="wall" texture="brick" texrepeat="6 1" specular="0.15" shininess="0.2"/>
+    <material name="iwall" texture="brick" texrepeat="3 1" rgba="0.95 0.92 0.85 1" specular="0.15"/>
+    <material name="wallcap" rgba="0.95 0.75 0.15 1" specular="0.4"/>
+    <material name="static_obs" texture="crate" texrepeat="1 1" specular="0.1"/>
+    <material name="pillar" rgba="0.5 0.52 0.58 1" specular="0.5" shininess="0.6"/>
+    <material name="dyn_obs" rgba="0.95 0.45 0.12 1" specular="0.4" shininess="0.5"/>
+    <material name="skin" rgba="0.98 0.8 0.62 1" specular="0.2"/>
+    <material name="chassis" rgba="0.12 0.4 0.85 1" specular="0.6" shininess="0.7"/>
+    <material name="deck" rgba="0.85 0.87 0.9 1" specular="0.5" shininess="0.6"/>
+    <material name="metal" rgba="0.6 0.62 0.66 1" specular="0.9" shininess="0.9"/>
+    <material name="rubber" rgba="0.08 0.08 0.09 1" specular="0.1"/>
+    <material name="lidar" rgba="0.12 0.12 0.14 1" specular="0.8" shininess="0.8"/>
+    <material name="led" rgba="0.2 1 0.4 1" emission="1"/>
+  </asset>
+
+  <default>
+    <default class="wall">
+      <geom type="box" material="wall" group="1"/>
+    </default>
+    <default class="obs">
+      <geom group="1" material="static_obs"/>
+    </default>
+    <default class="iwall">
+      <geom type="box" group="1" material="iwall"/>
+    </default>
+    <default class="dyn">
+      <geom type="cylinder" size="0.2 0.25" group="1" material="dyn_obs"/>
+    </default>
+    <default class="visual">
+      <geom contype="0" conaffinity="0" mass="0"/>
+    </default>
+  </default>
+
+  <worldbody>
+    <light name="sun" pos="2 -2 7" dir="-0.3 0.3 -1" diffuse="0.6 0.6 0.58" castshadow="true"/>
+    <light name="fill" pos="-3 3 5" dir="0.3 -0.3 -1" diffuse="0.25 0.25 0.3" castshadow="false"/>
+    <!-- floor never touches the robot (planar joints carry its weight) -->
+    <geom name="floor" type="plane" size="3.1 3.1 0.1" material="floor" contype="0" conaffinity="0"/>
+    <geom name="outside" class="visual" type="plane" size="12 12 0.1" pos="0 0 -0.002" material="outside"/>
+
+    <!-- 6 m x 6 m arena, 0.5 m tall walls (inner faces at +-3.0 m) -->
+    <geom name="wall_n" class="wall" pos="0 3.05 0.25" size="3.1 0.05 0.25"/>
+    <geom name="wall_s" class="wall" pos="0 -3.05 0.25" size="3.1 0.05 0.25"/>
+    <geom name="wall_e" class="wall" pos="3.05 0 0.25" size="0.05 3.1 0.25"/>
+    <geom name="wall_w" class="wall" pos="-3.05 0 0.25" size="0.05 3.1 0.25"/>
+    <!-- visual hazard-stripe caps on the outer walls -->
+    <geom class="visual" type="box" pos="0 3.05 0.51" size="3.1 0.055 0.01" material="wallcap"/>
+    <geom class="visual" type="box" pos="0 -3.05 0.51" size="3.1 0.055 0.01" material="wallcap"/>
+    <geom class="visual" type="box" pos="3.05 0 0.51" size="0.055 3.1 0.01" material="wallcap"/>
+    <geom class="visual" type="box" pos="-3.05 0 0.51" size="0.055 3.1 0.01" material="wallcap"/>
+
+    <camera name="top" pos="0 0 9.5" xyaxes="1 0 0 0 1 0"/>
+
+    <!-- Robot -->
+    <body name="base" pos="0 0 0.04">
+      <joint name="base_x" type="slide" axis="1 0 0" damping="0"/>
+      <joint name="base_y" type="slide" axis="0 1 0" damping="0"/>
+      <joint name="base_yaw" type="hinge" axis="0 0 1" damping="0"/>
+      <!-- chassis: r = 0.15 m, h = 0.08 m -->
+      <geom name="chassis" type="cylinder" size="0.15 0.04" pos="0 0 0.045" mass="3.0" material="chassis"/>
+      <!-- visual-only parts (no mass, no contacts, invisible to LiDAR) -->
+      <geom name="bumper" class="visual" type="cylinder" size="0.152 0.012" pos="0 0 0.02" material="rubber"/>
+      <geom name="deck" class="visual" type="cylinder" size="0.13 0.004" pos="0 0 0.135" material="deck"/>
+      <geom class="visual" type="cylinder" size="0.006 0.023" pos="0.08 0.08 0.108" material="metal"/>
+      <geom class="visual" type="cylinder" size="0.006 0.023" pos="0.08 -0.08 0.108" material="metal"/>
+      <geom class="visual" type="cylinder" size="0.006 0.023" pos="-0.08 0.08 0.108" material="metal"/>
+      <geom class="visual" type="cylinder" size="0.006 0.023" pos="-0.08 -0.08 0.108" material="metal"/>
+      <geom name="lidar_base" class="visual" type="cylinder" size="0.04 0.012" pos="0 0 0.151" material="lidar"/>
+      <geom name="lidar_head" class="visual" type="cylinder" size="0.032 0.014" pos="0 0 0.177" material="metal"/>
+      <geom name="lidar_win" class="visual" type="cylinder" size="0.033 0.004" pos="0 0 0.177" rgba="0.9 0.15 0.15 1"/>
+      <geom name="wheel_l" class="visual" type="cylinder" size="0.04 0.0125" pos="0 0.14 0" zaxis="0 1 0" material="rubber"/>
+      <geom name="wheel_r" class="visual" type="cylinder" size="0.04 0.0125" pos="0 -0.14 0" zaxis="0 1 0" material="rubber"/>
+      <geom name="hub_l" class="visual" type="cylinder" size="0.022 0.014" pos="0 0.14 0" zaxis="0 1 0" material="metal"/>
+      <geom name="hub_r" class="visual" type="cylinder" size="0.022 0.014" pos="0 -0.14 0" zaxis="0 1 0" material="metal"/>
+      <geom name="caster_f" class="visual" type="sphere" size="0.015" pos="0.12 0 -0.025" material="metal"/>
+      <geom name="caster_b" class="visual" type="sphere" size="0.015" pos="-0.12 0 -0.025" material="metal"/>
+      <geom name="nose" class="visual" type="box" size="0.035 0.03 0.01" pos="0.115 0 0.095" material="deck"/>
+      <geom name="led_l" class="visual" type="sphere" size="0.01" pos="0.138 0.04 0.07" material="led"/>
+      <geom name="led_r" class="visual" type="sphere" size="0.01" pos="0.138 -0.04 0.07" material="led"/>
+      <!-- lumped wheel/motor mass so total = 3.4 kg -->
+      <inertial pos="0 0 0.04" mass="3.4" diaginertia="0.04 0.04 0.04"/>
+      <site name="imu" pos="0 0 0.05"/>
+      <site name="lidar" pos="0 0 0.09"/>
+    </body>
+
+    <!-- Goal (visual only) -->
+    <body name="goal" mocap="true" pos="2 2 0">
+      <!-- small green marker only; the success region is still goal_radius = 0.3 m (config.py) -->
+      <geom name="goal" type="cylinder" size="0.06 0.005" contype="0" conaffinity="0" group="2"
+            rgba="0.1 0.9 0.3 1"/>
+    </body>
+
+    <!-- Static obstacle pool (8) -->
+    <body name="sobs0" mocap="true" pos="0 0 -5"><geom class="obs" material="pillar" type="cylinder" size="0.2 0.25"/></body>
+    <body name="sobs1" mocap="true" pos="0 0 -5"><geom class="obs" material="pillar" type="cylinder" size="0.2 0.25"/></body>
+    <body name="sobs2" mocap="true" pos="0 0 -5"><geom class="obs" material="pillar" type="cylinder" size="0.3 0.25"/></body>
+    <body name="sobs3" mocap="true" pos="0 0 -5"><geom class="obs" material="pillar" type="cylinder" size="0.3 0.25"/></body>
+    <body name="sobs4" mocap="true" pos="0 0 -5"><geom class="obs" material="pillar" type="cylinder" size="0.25 0.25"/></body>
+    <body name="sobs5" mocap="true" pos="0 0 -5"><geom class="obs" type="box" size="0.2 0.2 0.25"/></body>
+    <body name="sobs6" mocap="true" pos="0 0 -5"><geom class="obs" type="box" size="0.3 0.15 0.25"/></body>
+    <body name="sobs7" mocap="true" pos="0 0 -5"><geom class="obs" type="box" size="0.25 0.25 0.25"/></body>
+
+    <!-- Dynamic obstacle pool (6) -->
+    <body name="dobs0" mocap="true" pos="0 0 -5"><geom class="dyn"/><geom class="visual" type="cylinder" size="0.205 0.02" pos="0 0 0.2" rgba="0.2 0.2 0.25 1"/></body>
+    <body name="dobs1" mocap="true" pos="0 0 -5"><geom class="dyn"/><geom class="visual" type="cylinder" size="0.205 0.02" pos="0 0 0.2" rgba="0.2 0.2 0.25 1"/></body>
+    <body name="dobs2" mocap="true" pos="0 0 -5"><geom class="dyn"/><geom class="visual" type="cylinder" size="0.205 0.02" pos="0 0 0.2" rgba="0.2 0.2 0.25 1"/></body>
+    <body name="dobs3" mocap="true" pos="0 0 -5"><geom class="dyn"/><geom class="visual" type="cylinder" size="0.205 0.02" pos="0 0 0.2" rgba="0.2 0.2 0.25 1"/></body>
+    <body name="dobs4" mocap="true" pos="0 0 -5"><geom class="dyn"/><geom class="visual" type="cylinder" size="0.205 0.02" pos="0 0 0.2" rgba="0.2 0.2 0.25 1"/></body>
+    <body name="dobs5" mocap="true" pos="0 0 -5"><geom class="dyn"/><geom class="visual" type="cylinder" size="0.205 0.02" pos="0 0 0.2" rgba="0.2 0.2 0.25 1"/></body>
+
+    <!-- Interior wall pool (8 segments, stage s4) -->
+    <!-- half-lengths 0.5 / 0.75 / 1.0 / 1.25 m, thickness 0.12 m; first geom = collision -->
+    <body name="iwall0" mocap="true" pos="0 0 -5"><geom class="iwall" size="0.5 0.06 0.25"/><geom class="visual" type="box" size="0.5 0.065 0.01" pos="0 0 0.26" material="wallcap"/></body>
+    <body name="iwall1" mocap="true" pos="0 0 -5"><geom class="iwall" size="0.5 0.06 0.25"/><geom class="visual" type="box" size="0.5 0.065 0.01" pos="0 0 0.26" material="wallcap"/></body>
+    <body name="iwall2" mocap="true" pos="0 0 -5"><geom class="iwall" size="0.75 0.06 0.25"/><geom class="visual" type="box" size="0.75 0.065 0.01" pos="0 0 0.26" material="wallcap"/></body>
+    <body name="iwall3" mocap="true" pos="0 0 -5"><geom class="iwall" size="0.75 0.06 0.25"/><geom class="visual" type="box" size="0.75 0.065 0.01" pos="0 0 0.26" material="wallcap"/></body>
+    <body name="iwall4" mocap="true" pos="0 0 -5"><geom class="iwall" size="1.0 0.06 0.25"/><geom class="visual" type="box" size="1.0 0.065 0.01" pos="0 0 0.26" material="wallcap"/></body>
+    <body name="iwall5" mocap="true" pos="0 0 -5"><geom class="iwall" size="1.0 0.06 0.25"/><geom class="visual" type="box" size="1.0 0.065 0.01" pos="0 0 0.26" material="wallcap"/></body>
+    <body name="iwall6" mocap="true" pos="0 0 -5"><geom class="iwall" size="1.25 0.06 0.25"/><geom class="visual" type="box" size="1.25 0.065 0.01" pos="0 0 0.26" material="wallcap"/></body>
+    <body name="iwall7" mocap="true" pos="0 0 -5"><geom class="iwall" size="1.25 0.06 0.25"/><geom class="visual" type="box" size="1.25 0.065 0.01" pos="0 0 0.26" material="wallcap"/></body>
+  </worldbody>
+
+  <!--
+    Base velocity servos: F = kv * (v_cmd - v), clipped to force limits.
+    x/y servos receive the world-frame components of (v * cos yaw, v * sin yaw),
+    recomputed from the current yaw every substep (non-holonomic constraint).
+    Force limits give a physical acceleration ceiling of ~15/3.4 = 4.4 m/s^2,
+    above the 1.0 m/s^2 software limit, so normal commands are tracked closely.
+  -->
+  <actuator>
+    <velocity name="drive_x" joint="base_x" kv="300" ctrlrange="-1 1" forcerange="-15 15"/>
+    <velocity name="drive_y" joint="base_y" kv="300" ctrlrange="-1 1" forcerange="-15 15"/>
+    <velocity name="drive_yaw" joint="base_yaw" kv="1.0" ctrlrange="-3 3" forcerange="-1 1"/>
+  </actuator>
+
+  <sensor>
+    <velocimeter name="vel" site="imu"/>
+    <gyro name="gyro" site="imu"/>
+  </sensor>
+</mujoco>

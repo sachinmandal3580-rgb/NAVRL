@@ -1,0 +1,26 @@
+runs/
+logs/
+docs/
+results/
+__pycache__/
+*.pyc
+*.mp4
+.pytest_cache/
+explain.md
+
+# secrets
+.env
+.env.*
+*.pem
+*.key
+
+# checkpoints and weights
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.onnx
+*.pkl
+*.npz
+checkpoints/
+wandb/
