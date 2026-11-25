@@ -1,10 +1,17 @@
 # NavRL: Learning-Based Navigation through Reinforcement Learning
 
-A differential-drive robot with a 60-ray, 360° LiDAR learns with PPO (Stable-Baselines3) to reach random
-goals in a 6 m × 6 m arena with static and moving obstacles. There is no map, no planner and no hand-coded
+A differential-drive robot with a 360° LiDAR (120 rays in the final policy) learns with PPO (Stable-Baselines3) to reach random
+goals in a 6 m × 6 m arena with walls, static obstacles and moving obstacles. There is no map, no planner and no hand-coded
 avoidance: the policy maps LiDAR scans, goal direction and its own velocity directly to (v, ω) commands.
 
-Training follows a 3-stage curriculum: **empty arena → static obstacles → moving obstacles**.
+Training follows a curriculum: **empty arena → static obstacles → moving obstacles → walls and clutter**,
+then a final stage that mixes all of them (`s6_mix`).
+
+![NavRL in MuJoCo](figures/sim_view.png)
+
+*The s6 policy in the MuJoCo viewer: robot at the centre with its 120 LiDAR rays (green = far, red = close
+to an obstacle) and its path so far (blue line), the green goal point, crates and grey cylinders as static
+obstacles, orange cylinders as moving obstacles, yellow-capped interior walls.*
 
 ## Quick start: every command in order
 
