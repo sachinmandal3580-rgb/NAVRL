@@ -4,9 +4,7 @@ A differential-drive robot with a 60-ray, 360° LiDAR learns with PPO (Stable-Ba
 goals in a 6 m × 6 m arena with static and moving obstacles. There is no map, no planner and no hand-coded
 avoidance: the policy maps LiDAR scans, goal direction and its own velocity directly to (v, ω) commands.
 
-Training follows a 3-stage curriculum: **empty arena → static obstacles → moving obstacles**. The full design
-rationale, literature grounding and MDP formulation are in [docs/DESIGN.md](docs/DESIGN.md).
-**File-by-file code explanation: [docs/EXPLAIN.md](docs/EXPLAIN.md).**
+Training follows a 3-stage curriculum: **empty arena → static obstacles → moving obstacles**.
 
 ## Quick start: every command in order
 
@@ -20,9 +18,13 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q -p no:cacheprovider tests/ 
 
 # 1. Train the curriculum (each stage warm-starts from the previous one)
 TASK=s1_empty   MAX_ITER=100  RUN_NAME=s1 FOREGROUND=1 scripts/train.sh
+
 TASK=s2_static  MAX_ITER=1000 RUN_NAME=s2 FOREGROUND=1 WARM_START=logs/navrl/curriculum/s1/model_100.pt scripts/train.sh
+
 TASK=s3_dynamic MAX_ITER=1500 RUN_NAME=s3 FOREGROUND=1 WARM_START=logs/navrl/curriculum/s2/best_model.pt scripts/train.sh
+
 PHYSICS_DT=0.02 TASK=s5_mix MAX_ITER=1500 RUN_NAME=s5 FOREGROUND=1 WARM_START=logs/navrl/curriculum/s3/best_model.pt scripts/train.sh --num_learning_epochs 5 --num_mini_batches 8
+
 PHYSICS_DT=0.02 TASK=s6_mix MAX_ITER=2000 RUN_NAME=s6 FOREGROUND=1 WARM_START=logs/navrl/curriculum/s5/best_model.pt scripts/train.sh --num_learning_epochs 5 --num_mini_batches 8
 
 # 2. Evaluate the final policy on held-out test scenarios
@@ -72,9 +74,6 @@ pip install -r requirements.txt
 **Live viewer:** `scripts/demo.py`, `teleop.py` and `goal_nav.py` open a MuJoCo window, so they need a
 desktop session. On a headless machine use `demo.py --record out.mp4` instead.
 
-If ROS Jazzy is sourced in your shell, its `PYTHONPATH` breaks pytest plugins. The pytest command above
-disables plugin autoload for that reason, and `scripts/train.sh` unsets `PYTHONPATH` itself.
-
 ## 2. Sanity checks (run once, before training)
 
 ```bash
@@ -98,7 +97,7 @@ python scripts/benchmark.py           # optional: env steps/s and parallel-env s
 
 - **One iteration** = `NUM_ENVS × NUM_STEPS` env steps (one rollout) followed by one PPO update.
   The default is 4 envs × 1024 steps = **4096 steps per iteration**.
-- **4 parallel envs is the benchmarked sweet spot** on this laptop:
+- **4 parallel envs is the benchmarked sweet spot** on tested laptop:
   - 6 or 8 envs give only ~6% more throughput;
   - they use more of the 7 GB of RAM;
   - they make each iteration longer.
