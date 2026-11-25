@@ -12,7 +12,7 @@ rationale, literature grounding and MDP formulation are in [docs/DESIGN.md](docs
 
 ```bash
 conda activate dhav
-cd ~/navrl
+cd ~/NAVRL
 
 # 0. Sanity checks (~10 s)
 python scripts/validate_robot.py                    # expect: 10/10 tests passed
@@ -46,7 +46,7 @@ Everything runs in the existing **`dhav`** conda env:
 
 ```bash
 conda activate dhav
-cd ~/navrl
+cd ~/NAVRL
 ```
 
 If ROS Jazzy is sourced in your shell, its `PYTHONPATH` breaks pytest plugins. The pytest command above
@@ -540,7 +540,7 @@ Stage `s5_mix` addresses each of these (see Training).
 Generated outputs (`logs/`, `results/`) are created by training and evaluation and are gitignored.
 
 ```
-navrl/
+NAVRL/
 ├── assets/
 │   └── arena.xml                 # MJCF: robot, 6x6 m arena, walls, goal, obstacle pools, servos, sensors
 ├── docs/
