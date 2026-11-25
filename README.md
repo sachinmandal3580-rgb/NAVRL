@@ -97,17 +97,32 @@ TASK=s2_static  MAX_ITER=1000 RUN_NAME=s2 FOREGROUND=1 WARM_START=logs/navrl/cur
 # Stage 3: 2-5 static + 1-4 moving obstacles, 50% of episodes with a crossing obstacle (~60-70 min)
 TASK=s3_dynamic MAX_ITER=1500 RUN_NAME=s3 FOREGROUND=1 WARM_START=logs/navrl/curriculum/s2/best_model.pt scripts/train.sh
 
+# Stage 5 (recommended): mix of all stages + geodesic progress + scans 0.3 s apart (~1.5 h)
+PHYSICS_DT=0.02 TASK=s5_mix MAX_ITER=1500 RUN_NAME=s5 FOREGROUND=1 WARM_START=logs/navrl/curriculum/s3/best_model.pt scripts/train.sh --num_learning_epochs 5 --num_mini_batches 8
+
 # Stage 4: 2-6 interior walls + 2-6 static + 2-6 wandering movers up to 0.6 m/s, 45 s episodes (~2.5-3 h)
 TASK=s4_complex MAX_ITER=2000 RUN_NAME=s4 FOREGROUND=1 WARM_START=logs/navrl/curriculum/s3/best_model.pt scripts/train.sh
 ```
 
 Stage 1 converges almost immediately, so its final `model_100.pt` is used for the warm start.
 
+**Stage 5 (`s5_mix`)** is the fix for what stage 4 got wrong. It warm-starts from the s3 model and changes:
+- **Stage mix:** every episode is drawn from empty / static / dynamic / dynamic / walls / walls, so earlier
+  skills are not forgotten.
+- **Geodesic progress:** the progress reward uses the shortest-path distance around walls and static
+  obstacles (grid Dijkstra at reset), so detours are no longer punished. Reward only; the policy never sees
+  the map.
+- **Scans 0.3 s apart** (`stack_gap=3`): the 3 stacked scans span 0.6 s, so movers visibly move between
+  them.
+- **Reward weights:** time cost 0.005 -> 0.01 (stops hovering near the goal); proximity 0.01 -> 0.03,
+  starting at 0.5 m.
+- **Speed:** `PHYSICS_DT=0.02` and 5 epochs x 8 minibatches make it about 2x faster per iteration.
+
 **`scripts/train.sh` variables** (set before the command; anything after it passes straight to `train.py`):
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `TASK` | `s1_empty` | `s1_empty`, `s2_static`, `s3_dynamic` or `s4_complex` |
+| `TASK` | `s1_empty` | `s1_empty`, `s2_static`, `s3_dynamic`, `s4_complex` or `s5_mix` |
 | `MAX_ITER` | `100` | PPO iterations |
 | `NUM_ENVS` | `4` | parallel envs (CPU processes) |
 | `NUM_STEPS` | `1024` | rollout length per env per iteration |
@@ -336,6 +351,27 @@ python scripts/goal_nav.py --controller gotogoal --stage s2_static      # baseli
 - **Goals are clamped** 0.35 m inside the walls. You get a warning if the goal sits inside a static
   obstacle or wall, because the robot can never reach it.
 
+## Figures
+
+Regenerate all of them with `python scripts/plot_results.py` (it reads `logs/` and `results/`).
+
+**Training curves.** Validation success and collision rate across the curriculum, stages run back to back.
+Stage 4 peaks around iteration 1200 of the stage and then gets worse, so more iterations alone don't help.
+
+![training curves](figures/training_curves.png)
+
+**Collision rate vs difficulty.** One factor varied at a time, 100 test episodes per point, 95% intervals.
+
+![collision vs difficulty](figures/difficulty_collisions.png)
+
+**Success rate on every robustness sweep.**
+
+![robustness](figures/robustness_success.png)
+
+**Outcome per test suite.**
+
+![suite outcomes](figures/suite_outcomes.png)
+
 ## How it works
 
 ### Robot and simulation
@@ -472,7 +508,30 @@ s3 best, s4 best at iteration 1200 (training still running) and go-to-goal:
 - **Robust to sensor noise** (up to 0.10 m std) and robot top speed 0.5-0.8 m/s. Success drops at
   0.3 m/s, because a slow robot cannot escape movers.
 
-Stage 4: final numbers to be filled in after training.
+**Stage 4 (2000 iterations), 100 test episodes per suite, success rate:**
+
+| Suite | s3 best | s4 best (it 1200) | s4 final (it 2000) | go-to-goal |
+|---|---|---|---|---|
+| empty | **1.00** | 0.83 | 0.93 | 1.00 |
+| static | **0.98** | 0.90 | 0.84 | 0.78 |
+| dyn_slow | **0.94** | 0.87 | 0.82 | 0.76 |
+| dyn_medium | **0.91** | 0.85 | 0.78 | 0.76 |
+| dyn_fast | **0.85** | 0.76 | 0.66 | 0.73 |
+| crossing | **0.83** | 0.56 | 0.64 | 0.28 |
+| walls | 0.69 | **0.83** | 0.69 | 0.51 |
+| complex | 0.55 | **0.62** | 0.48 | 0.39 |
+| crowd | 0.48 | **0.53** | 0.42 | 0.51 |
+
+What went wrong in stage 4 (from classifying every failed episode):
+- **It stalls near the goal.** s4 best times out in 17% of episodes in an empty arena, stopping, circling or
+  wandering 0.4-1 m from the goal. Hovering only cost 0.005 per step, far less than the risk of a
+  collision.
+- **It forgot crossings:** 0.83 for s3, 0.56 for s4.
+- **Wall collisions:** with the straight-line progress reward, going around a wall is punished, so it cuts
+  corners.
+- **Most remaining collisions are with movers**, which the 0.1 s scan stack barely shows as motion.
+
+Stage `s5_mix` addresses each of these (see Training).
 
 ## Project layout
 
@@ -503,6 +562,7 @@ navrl/
 │   ├── demo.py                   # live MuJoCo viewer or MP4 recording
 │   ├── evaluate.py               # held-out test suites -> results/<name>/
 │   ├── train.py                  # training CLI (--task --num_envs --max_iterations --warm_start --resume)
+│   ├── plot_results.py           # README figures (training, difficulty, suites)
 │   ├── robust_eval.py            # one-factor sweeps with 95% CIs
 │   ├── goal_nav.py               # set goals by hand (terminal / keys / mouse), policy drives
 │   ├── teleop.py                 # drive the robot yourself with the keyboard (live viewer)
@@ -521,6 +581,7 @@ navrl/
 │           ├── s2/               # stage 2: static obstacles (same structure, up to model_1000.pt)
 │           ├── s3/               # stage 3: moving obstacles (up to model_1500.pt)
 │           └── s4/               # stage 4: walls + crowds (up to model_2000.pt)
+├── figures/                      # README figures (committed)
 ├── results/                      # (generated) evaluation outputs
 │   └── <name>/                   # e.g. gotogoal/, s3_best_model/
 │       ├── summary.json          # per-suite metrics

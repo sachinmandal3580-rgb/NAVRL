@@ -62,9 +62,10 @@ STAGES: dict[str, dict] = {
 # v2 "better policy" recipe: mixed stages, geodesic progress, scans 0.3 s apart,
 # stronger/earlier proximity penalty. Same observation size as v1 (n_stack=3).
 STAGES["s5_mix"] = dict(
-    mix=("s2_static", "s3_dynamic", "s4_complex", "s4_complex"),
+    mix=("s1_empty", "s2_static", "s3_dynamic", "s3_dynamic", "s4_complex", "s4_complex"),
     geodesic_progress=True, stack_gap=3, max_steps=450,
-    reward=RewardConfig(proximity=0.03, d_safe=0.5),
+    # time cost doubled: s4 learned to hover near the goal (17% timeouts even in an empty arena)
+    reward=RewardConfig(proximity=0.03, d_safe=0.5, time=0.01),
 )
 
 MIX_KEYS = ("n_static", "n_dynamic", "dyn_speed", "p_crossing", "n_walls", "dyn_wander")
