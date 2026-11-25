@@ -393,6 +393,7 @@ Regenerate all of them with `python scripts/plot_results.py` (it reads `logs/` a
 
 **Training curves.** Validation success and collision rate across the curriculum, stages run back to back.
 Stage 4 peaks around iteration 1200 of the stage and then gets worse, so more iterations alone don't help.
+Stages 5 and 6 train on a mix of all scene types, so their curves sit between the s3 and s4 levels.
 
 ![training curves](figures/training_curves.png)
 
@@ -595,7 +596,33 @@ Stage `s5_mix` addresses each of these (see Training).
 - **Still weak:** every dynamic-suite collision was with a mover; crossings dropped to 0.65; about 20 of
   every 100 wall-suite episodes ended in a wall collision. Stage 6 targets both.
 
-**Stage 6 (final policy):** to be filled in after training.
+**Stage 6 (final policy, best checkpoint at iteration 1770 of 2000), 100 test episodes per suite,
+same seeds as above:**
+
+| Suite | s6 success | s5 success | s6 collision | s5 collision | time to goal s5 -> s6 |
+|---|---|---|---|---|---|
+| empty | **1.00** | **1.00** | 0.00 | 0.00 | 9.7 -> 7.7 s |
+| static | 0.97 | **0.99** | 0.03 | 0.00 | 9.6 -> 7.7 s |
+| dyn_slow | 0.93 | **0.99** | 0.07 | 0.01 | 9.6 -> 8.0 s |
+| dyn_medium | 0.86 | **0.88** | 0.14 | 0.12 | 9.2 -> 7.6 s |
+| dyn_fast | **0.81** | 0.80 | 0.19 | 0.20 | 9.0 -> 7.5 s |
+| crossing | **0.75** | 0.65 | 0.25 | 0.35 | 10.8 -> 8.2 s |
+| walls | **0.83** | 0.73 | 0.08 | 0.22 | 9.8 -> 7.8 s |
+| complex | **0.68** | 0.53 | 0.28 | 0.45 | 8.2 -> 8.2 s |
+| crowd | **0.60** | 0.56 | 0.40 | 0.44 | 9.0 -> 7.6 s |
+
+- **Walls:** collisions dropped from 22 to 8 per 100 episodes. With 120 rays (3 degrees apart) thin
+  walls no longer slip between rays, which was the main s5 wall failure.
+- **Crossings:** 0.65 -> 0.75, so the extra crossing episodes recovered most of what s5 lost.
+- **Complex:** 0.53 -> 0.68, the largest gain and the only one clearly outside the noise
+  (about 2.2 standard errors; crossing and walls are about 1.6 each).
+- **Faster everywhere:** about 20% shorter time to goal. The price is a few more collisions with slow
+  movers (dyn_slow 0.99 -> 0.93) that s5 would have waited out.
+- **Still weak:** crowds (0.60) and fast movers. Most remaining failures are collisions with movers.
+
+During training the s6 collision rate looked flat (about 0.27). That is because the training mix itself
+is harder (two of every seven episodes have a mover aimed at the robot); the fixed test suites above are
+the fair comparison.
 
 ## Project layout
 
